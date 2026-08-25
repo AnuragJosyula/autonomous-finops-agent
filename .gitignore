@@ -1,0 +1,22 @@
+# Virtual environment
+.venv/
+venv/
+
+# Credentials — never commit
+.env.local
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+cost-anomaly-agent.zip
