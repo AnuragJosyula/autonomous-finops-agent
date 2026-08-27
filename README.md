@@ -175,6 +175,21 @@ python -m unittest tests.test_integration -v
 
 ---
 
+## 📊 Deployment & Architecture Comparison Matrix
+
+| Feature / Dimension | Mode 1: Elasticsearch Telemetry | Mode 2: AWS Native (Cost Explorer API) | Mode 3: Enterprise AWS Native (Athena CUR / FOCUS) |
+|---|---|---|---|
+| **Target Scale** | Full Observability Stack | Single-Account / Developer Sandbox | Enterprise Multi-Account (AWS Organizations) |
+| **Billing Data Source** | Elasticsearch (`metrics-aws.billing-*`) | AWS Cost Explorer (`ce:GetCostAndUsage`) | AWS CUR Export via S3 + Athena SQL |
+| **Data Standard** | Elastic Common Schema (ECS) | AWS CE Proprietary | **FOCUS 1.4 Standardized Schema** |
+| **Data Granularity** | Index-level daily/hourly spend | Service-level daily/hourly totals | Line-item Resource ARNs, Usage Types, Pricing Models |
+| **Monthly Execution Cost** | ~$3–$5 / month (Lambda + Elastic) | ~$1–$3 / month ($0.01 per CE API call) | **~$5–$8 / month** (Parquet S3 scanning ~$0.30 + Bedrock) |
+| **External Dependencies** | Elastic Cloud Serverless Cluster | **Zero** (Pure AWS Lambda + boto3) | **Zero** (Pure AWS Lambda + S3 + Athena) |
+| **Setup Complexity** | API key & index mapping setup | **1-Click AWS CLI / SAM deploy** | 1-Time CUR S3 Export & Glue Crawler |
+| **Primary Code File** | [`agent.py`](./agent.py) | [`aws_native_plug_and_play/agent.py`](./aws_native_plug_and_play/agent.py) | [`aws_native_plug_and_play/tools/aws_athena_cur.py`](./aws_native_plug_and_play/tools/aws_athena_cur.py) |
+
+---
+
 ## 📄 License
 
 MIT License. Free to use and modify.
