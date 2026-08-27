@@ -75,20 +75,20 @@ def run_athena_query(query: str, timeout_seconds: int = 30) -> list[dict[str, An
 
 def get_7day_baseline(service: str | None = None) -> dict[str, float]:
     """
-    Calculate 7-day rolling average daily spend per service from CUR via Athena.
+    Calculate 7-day rolling average daily spend per service using FOCUS 1.4 schema (BilledCost, ServiceName, ChargePeriodStart).
     """
     today = datetime.now(timezone.utc).date()
     seven_days_ago = today - timedelta(days=7)
 
     query = f"""
         SELECT 
-            line_item_product_code AS service,
-            SUM(CAST(line_item_unblended_cost AS double)) / 7.0 AS daily_avg_usd
+            COALESCE(ServiceName, line_item_product_code) AS service,
+            SUM(CAST(COALESCE(BilledCost, line_item_unblended_cost) AS double)) / 7.0 AS daily_avg_usd
         FROM "{ATHENA_DATABASE}"."{ATHENA_TABLE}"
-        WHERE line_item_usage_start_date >= DATE '{seven_days_ago.strftime("%Y-%m-%d")}'
-          AND line_item_usage_start_date < DATE '{today.strftime("%Y-%m-%d")}'
-        GROUP BY line_item_product_code
-        HAVING SUM(CAST(line_item_unblended_cost AS double)) > 0
+        WHERE COALESCE(ChargePeriodStart, line_item_usage_start_date) >= DATE '{seven_days_ago.strftime("%Y-%m-%d")}'
+          AND COALESCE(ChargePeriodStart, line_item_usage_start_date) < DATE '{today.strftime("%Y-%m-%d")}'
+        GROUP BY COALESCE(ServiceName, line_item_product_code)
+        HAVING SUM(CAST(COALESCE(BilledCost, line_item_unblended_cost) AS double)) > 0
     """
     records = run_athena_query(query)
     baselines = {}
@@ -107,17 +107,17 @@ def get_7day_baseline(service: str | None = None) -> dict[str, float]:
 
 def get_todays_cost(service: str | None = None) -> dict[str, float]:
     """
-    Get today's spend per service from CUR via Athena.
+    Get today's spend per service using FOCUS 1.4 schema.
     """
     today = datetime.now(timezone.utc).date()
 
     query = f"""
         SELECT 
-            line_item_product_code AS service,
-            SUM(CAST(line_item_unblended_cost AS double)) AS todays_cost_usd
+            COALESCE(ServiceName, line_item_product_code) AS service,
+            SUM(CAST(COALESCE(BilledCost, line_item_unblended_cost) AS double)) AS todays_cost_usd
         FROM "{ATHENA_DATABASE}"."{ATHENA_TABLE}"
-        WHERE line_item_usage_start_date >= DATE '{today.strftime("%Y-%m-%d")}'
-        GROUP BY line_item_product_code
+        WHERE COALESCE(ChargePeriodStart, line_item_usage_start_date) >= DATE '{today.strftime("%Y-%m-%d")}'
+        GROUP BY COALESCE(ServiceName, line_item_product_code)
     """
     records = run_athena_query(query)
     costs = {}
@@ -136,7 +136,7 @@ def get_todays_cost(service: str | None = None) -> dict[str, float]:
 
 def find_spike_services(threshold_pct: float = 25.0) -> list[dict[str, Any]]:
     """
-    Compare today's AWS spend vs 7-day baseline using Athena CUR data.
+    Compare today's AWS spend vs 7-day baseline using FOCUS 1.4 compliant Athena data.
     Flag services exceeding baseline by >= threshold_pct.
     """
     baselines = get_7day_baseline()
@@ -160,25 +160,25 @@ def find_spike_services(threshold_pct: float = 25.0) -> list[dict[str, Any]]:
             })
 
     anomalies.sort(key=lambda x: x["delta_usd"], reverse=True)
-    logger.info("Athena CUR flagged %d spike(s) above %.1f%%", len(anomalies), threshold_pct)
+    logger.info("Athena FOCUS CUR flagged %d spike(s) above %.1f%%", len(anomalies), threshold_pct)
     return anomalies
 
 
 def get_cost_timeseries(service: str, hours: int = 48) -> list[dict[str, Any]]:
     """
-    Get hourly cost data for a specific AWS service from CUR via Athena.
+    Get hourly cost data for a specific service using FOCUS 1.4 schema.
     """
     now = datetime.now(timezone.utc)
     start_time = now - timedelta(hours=hours)
 
     query = f"""
         SELECT 
-            DATE_TRUNC('hour', line_item_usage_start_date) AS hour_ts,
-            SUM(CAST(line_item_unblended_cost AS double)) AS hourly_cost
+            DATE_TRUNC('hour', COALESCE(ChargePeriodStart, line_item_usage_start_date)) AS hour_ts,
+            SUM(CAST(COALESCE(BilledCost, line_item_unblended_cost) AS double)) AS hourly_cost
         FROM "{ATHENA_DATABASE}"."{ATHENA_TABLE}"
-        WHERE line_item_product_code = '{service}'
-          AND line_item_usage_start_date >= TIMESTAMP '{start_time.strftime("%Y-%m-%d %H:%M:%S")}'
-        GROUP BY DATE_TRUNC('hour', line_item_usage_start_date)
+        WHERE COALESCE(ServiceName, line_item_product_code) = '{service}'
+          AND COALESCE(ChargePeriodStart, line_item_usage_start_date) >= TIMESTAMP '{start_time.strftime("%Y-%m-%d %H:%M:%S")}'
+        GROUP BY DATE_TRUNC('hour', COALESCE(ChargePeriodStart, line_item_usage_start_date))
         ORDER BY hour_ts ASC
     """
     records = run_athena_query(query)
@@ -192,3 +192,4 @@ def get_cost_timeseries(service: str, hours: int = 48) -> list[dict[str, Any]]:
         except ValueError:
             continue
     return timeseries
+
