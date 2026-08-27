@@ -14,7 +14,15 @@ from typing import Any
 
 import boto3
 
-from tools.aws_cost_explorer import find_spike_services, get_cost_timeseries
+COST_PROVIDER = os.environ.get("COST_PROVIDER", "COST_EXPLORER").upper()
+
+if COST_PROVIDER == "ATHENA_CUR":
+    from tools.aws_athena_cur import find_spike_services, get_cost_timeseries
+    logger.info("Using Enterprise Athena CUR (FOCUS) cost provider")
+else:
+    from tools.aws_cost_explorer import find_spike_services, get_cost_timeseries
+    logger.info("Using AWS Cost Explorer API cost provider")
+
 from tools.aws_cloudtrail import find_deploys_near_spike
 from tools.slack_notify import post_slack_alert
 

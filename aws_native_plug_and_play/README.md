@@ -138,7 +138,23 @@ aws events put-targets \
 
 | Environment Variable | Default Value | Description |
 |---|---|---|
+| `COST_PROVIDER` | `COST_EXPLORER` | Billing backend provider (`COST_EXPLORER` for Cost Explorer API or `ATHENA_CUR` for Enterprise Athena CUR/FOCUS) |
+| `ATHENA_DATABASE` | `athenacurcfn_aws_cur` | Glue/Athena database name when `COST_PROVIDER=ATHENA_CUR` |
+| `ATHENA_TABLE` | `aws_cur` | Athena CUR table name (supports FOCUS standardized columns) |
+| `ATHENA_OUTPUT_LOCATION` | `s3://aws-athena-query-results-finops/` | S3 bucket for Athena query output staging |
 | `SLACK_WEBHOOK_URL` | *(Required)* | Slack incoming webhook URL |
 | `SPIKE_THRESHOLD_PCT` | `25.0` | Percentage increase over 7-day average required to trigger alert |
 | `AWS_BEDROCK_REGION` | `us-east-1` | AWS region where Amazon Bedrock model is enabled |
 | `BEDROCK_MODEL_ID` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Amazon Bedrock model ID |
+
+---
+
+## 🏢 Enterprise Scaling: Cost Explorer vs Athena CUR (FOCUS)
+
+| Dimension | Cost Explorer API (`COST_EXPLORER`) | Enterprise Athena CUR (`ATHENA_CUR`) |
+|---|---|---|
+| **Best For** | Single-account, quick zero-setup deployment | Multi-account / AWS Organizations, large scale |
+| **Pricing** | $0.01 per API call | ~$0.005 per GB scanned (Athena S3 query) |
+| **Granularity** | Service-level daily/hourly totals | Line-item resource ARNs, usage types, pricing models |
+| **Schema** | Proprietary AWS CE format | Standardized FOCUS schema compatible |
+
