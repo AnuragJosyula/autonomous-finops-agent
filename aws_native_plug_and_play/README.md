@@ -120,7 +120,7 @@ aws lambda create-function \
   --handler agent.lambda_handler \
   --zip-file fileb://native-cost-agent.zip \
   --timeout 60 \
-  --environment "Variables={SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL,AWS_BEDROCK_REGION=us-east-1,BEDROCK_MODEL_ID=us.anthropic.claude-3-5-sonnet-20241022-v2:0,SPIKE_THRESHOLD_PCT=25.0}"
+  --environment "Variables={SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL,AWS_BEDROCK_REGION=us-east-1,BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-5-20250929-v1:0,SPIKE_THRESHOLD_PCT=25.0}"
 ```
 
 ### Step 4: Add EventBridge Schedule (Triggers Daily at 8 AM UTC)
@@ -156,7 +156,7 @@ aws events put-targets \
 | `SLACK_WEBHOOK_URL` | *(Required)* | Your Slack incoming webhook URL |
 | `SPIKE_THRESHOLD_PCT` | `25.0` | Cost increase percentage needed to trigger an alert |
 | `AWS_BEDROCK_REGION` | `us-east-1` | AWS region for Amazon Bedrock model |
-| `BEDROCK_MODEL_ID` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Amazon Bedrock AI model ID |
+| `BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` | Amazon Bedrock AI model ID |
 
 ---
 
