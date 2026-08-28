@@ -1,161 +1,132 @@
 # Cloud Cost Anomaly Agent 💰🤖
 
-An autonomous **FinOps AI Agent** that detects AWS cost spikes, correlates them with recent code deployments, and posts root-cause alerts with actionable fix recommendations to Slack — automatically every morning.
-
-Built with **Amazon Bedrock (Claude)**, **Elastic Cloud Serverless**, and **AWS Lambda**. Operates serverlessly for **~$3–5/month**.
+An AI agent that finds AWS cost spikes every morning, checks what code or infrastructure changed, and sends a Slack alert with simple fix instructions to save money.
 
 ---
 
-## ❓ What Is This?
+## ⚡ Choose Your Mode (Which one to use?)
 
-This project is an **agentic cloud cost monitoring system**. Instead of engineers manually logging into AWS Cost Explorer and searching through GitHub deployment logs when a bill spikes, this agent runs automatically every morning, reasons through billing & deployment data using AI, and posts an actionable alert to Slack.
+This project gives you **two simple choices** so you can pick what works best for you:
 
----
+1. **100% AWS Native Plug & Play (Easiest — No Database Needed)** 🚀
+   - **Best for:** Anyone who wants a quick setup without setting up databases or API keys.
+   - **How it works:** Runs on AWS Lambda, reads AWS Cost Explorer or CloudTrail directly using `boto3`, and posts to Slack.
+   - **Folder:** [`aws_native_plug_and_play/`](./aws_native_plug_and_play/)
 
-## 💡 Why This Was Done & How It Helps
-
-### The Problem
-
-* AWS bills arrive daily, but cost spikes (e.g. Kubernetes pod autoscaling, orphaned NAT gateways, unoptimized queries) often go unnoticed for days or weeks.
-* Correlating a cost spike with code deployments requires checking multiple tools (AWS Cost Explorer, Datadog, GitHub Actions, Kubernetes HPA metrics).
-
-### How It Helps
-
-* **Zero Manual Triage:** The agent runs on a daily schedule, calculates a 7-day baseline, and flags any service exceeding its baseline by $\ge 25\%$.
-* **Automated Root-Cause Correlation:** Matches the exact hour of the cost spike with recent CI/CD code deployments ($\pm 12\text{h}$ window).
-* **Actionable Dollar Savings:** Provides specific engineering fix instructions along with estimated daily dollar savings.
-* **Hands-on Observability:** Originally built with Elastic Cloud Serverless (ELK) to get hands-on experience with unified telemetry & audit data streams, with a 100% AWS-Native Plug & Play alternative included for zero-database setups.
-* **Low Cost:** Completely serverless — costs ~$3–5/month to run.
+2. **Elasticsearch Mode (Hands-on Learning)** 🧪
+   - **Best for:** Learning how to store logs and billing data in Elastic Cloud Serverless.
+   - **How it works:** Stores AWS billing metrics and deployment logs inside Elasticsearch indices for searching.
+   - **Folder:** Root directory ([`agent.py`](./agent.py))
 
 ---
 
-## 📊 How It Gives Results (Sample Output)
+## ❓ What Does This Do?
 
-When an anomaly is detected, the agent generates and posts a structured **Slack Block Kit card** to `#finops`:
+When an AWS bill increases suddenly, engineers usually spend hours searching AWS Cost Explorer and GitHub deployment logs to find out why.
+
+This agent does that work automatically every morning:
+1. Calculates your average daily spend over the past 7 days.
+2. Flags any AWS service where today's spend increased by 25% or more.
+3. Checks what code was deployed or what AWS infrastructure changed around that time.
+4. Posts a clear, formatted alert card to Slack with root-cause and fix instructions.
+
+---
+
+## 📊 Sample Slack Alert Output
+
+When a cost spike is found, the agent posts this card to Slack:
 
 ```text
 🔴 AWS Cost Anomaly Detected
-Run `manual-demo-run` · 1 anomaly(ies) found · 4.2s
+Run `manual-demo-run` · 1 anomaly found · 4.2s
 
 ─────────────────────────────────────────────────────────────
 *Amazon EC2* · `checkout-team`
-Today: *$847.20* (+43.1% vs 7-day avg)
-Baseline: $592.10/day · Delta: *+$255.10*
+Today: *$847.20* (+43.1% vs 7-day average)
+Baseline: $592.10/day · Increase: *+$255.10*
 
 🔍 Root Cause:
-HPA scaled checkout pods 3->12 replicas 6h after deploy v2.3.1 at 14:00 UTC -- CPU utilisation held at 18%, minReplicas set too high.
+HPA scaled checkout pods from 3 to 12 replicas 6 hours after deploy v2.3.1 at 14:00 UTC. CPU usage stayed low at 18%, so minReplicas was set too high.
 
 💡 Suggested Fix:
-Reduce minReplicas to 3 in checkout-service/k8s/hpa.yaml. Estimated saving if fixed today: ~$220.
+Reduce minReplicas back to 3 in checkout-service/k8s/hpa.yaml. Estimated daily saving: ~$220.
 ```
 
 ---
 
-## 🔌 Plug & Play Mode: 100% AWS Native (No Database Required)
+## 📊 Simple Comparison Table
 
-In addition to the Elasticsearch unified telemetry mode, this repository includes a **100% AWS-Native Plug & Play** version inside the [`aws_native_plug_and_play/`](./aws_native_plug_and_play/) directory!
-
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    AWS Native Plug & Play Architecture                  │
-│                                                                         │
-│  AWS Cost Explorer API  ──► boto3.client('ce')       ──► Baseline & Spike│
-│  AWS CloudTrail         ──► boto3.client('cloudtrail')──► Deploy Events  │
-│  Amazon Bedrock         ──► Bedrock Converse API     ──► AI Reasoning   │
-│  Slack Webhook          ──► HTTP POST                ──► Alert Card     │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Why use AWS Native Plug & Play?
-
-* **Zero External Databases:** No Elasticsearch cluster, no API keys, no index setup.
-* **Pure AWS Credentials:** Queries `ce:GetCostAndUsage` and `cloudtrail:LookupEvents` directly via standard `boto3` IAM permissions.
-* **Instant Deployment:** See [`aws_native_plug_and_play/README.md`](./aws_native_plug_and_play/README.md) for 1-click AWS CLI / CloudFormation deployment steps to monitor any AWS account immediately!
+| Question | Mode 1: AWS Native (Cost Explorer) | Mode 2: Enterprise AWS Native (Athena) | Mode 3: Elasticsearch Mode |
+|---|---|---|---|
+| **Best For?** | Quick setup on 1 AWS account | Large setups with 50+ AWS accounts | Learning Elastic Cloud & log indexing |
+| **Needs Extra Database?** | **No** (Zero setup) | **No** (Uses AWS S3 & Athena) | Yes (Elastic Cloud Serverless) |
+| **Data Source?** | AWS Cost Explorer API | AWS CUR billing files in S3 | Elasticsearch index |
+| **Monthly Cost?** | ~$1 – $3 per month | ~$5 – $8 per month | ~$3 – $5 per month |
+| **Setup Time?** | 2 minutes | 1-time S3 setup | Needs API key & index setup |
+| **Code Location** | [`aws_native_plug_and_play/`](./aws_native_plug_and_play/) | [`aws_native_plug_and_play/tools/aws_athena_cur.py`](./aws_native_plug_and_play/tools/aws_athena_cur.py) | [`agent.py`](./agent.py) |
 
 ---
 
-## 🛠️ Key Technical Architecture
+## 🛠️ How It Works (Step-by-Step)
 
 ```text
-EventBridge (cron 0 8 * * ? *)
-  └──► AWS Lambda (Thin Orchestrator)
-        ├──► Amazon Bedrock (Claude Converse API - 7-Step Tool Loop)
-        │     ├── 1. find_spike_services    (Compare today vs 7-day baseline)
-        │     ├── 2. get_cost_timeseries    (Pinpoint exact spike hour)
-        │     ├── 3. find_deploys_near_spike(Match with CI/CD deploy events)
-        │     ├── 4. post_slack_alert       (Send Block Kit alert card)
-        │     └── 5. write_audit            (Log run telemetry to Elasticsearch)
-        │
-        ├──► Elasticsearch
-        │     ├── metrics-aws.billing-*    (AWS daily spend per service)
-        │     ├── deploy-events-*          (CI/CD code deployment logs)
-        │     └── cost-anomaly-audit-*     (Agent run audit logs)
+EventBridge (Daily Schedule 8 AM)
+  └──► AWS Lambda Function
+        ├──► Amazon Bedrock (Claude AI - 5 Tool Steps)
+        │     ├── 1. find_spike_services    (Compare today vs 7-day average)
+        │     ├── 2. get_cost_timeseries    (Find exact hour spike started)
+        │     ├── 3. find_deploys_near_spike(Find recent code or infra changes)
+        │     ├── 4. post_slack_alert       (Send alert card to Slack)
+        │     └── 5. write_audit            (Save run log)
         │
         └──► Slack (#finops)
 ```
 
 ---
 
-## 🚨 Issues Faced & How We Fixed Them
+## 🚨 Common Problems & Simple Fixes
 
-During the development and setup of this project, we encountered and resolved several real-world engineering challenges:
+Here are common issues faced during setup and how to fix them:
 
-### 1. PyPI / Pip Installation Network Connection Failures
+### 1. Pip Install Errors (PyPI Connection Timeout)
+* **Problem:** Running `pip install` failed because of old NVIDIA pip settings in system files.
+* **Fix:** Cleaned global `pip.ini` file to make sure pip downloads directly from PyPI (`https://pypi.org/simple`).
 
-* **Issue:** Running `pip install` failed with connection retries (`[Errno 11001] getaddrinfo failed`) due to a global NVIDIA PyPI index (`pypi.ngc.nvidia.com`) lingering in system `pip.ini` files.
-* **Fix:** Cleaned global `pip.ini` configuration files under `C:\ProgramData\pip\pip.ini` and user profiles, enforcing direct PyPI resolution (`https://pypi.org/simple`).
+### 2. AWS Bedrock Access Denied Error
+* **Problem:** Calling Bedrock returned an error because Anthropic Claude model access was not turned on in AWS Console.
+* **Fix:** Went to AWS Console -> Bedrock -> Model Access and enabled Anthropic Claude models.
 
-### 2. AWS Bedrock Model Identifier & Access Permissions
-
-* **Issue:** Initial test invocations returned `ResourceNotFoundException` (deprecated model string) and `AccessDeniedException` (missing AWS Marketplace subscription for Anthropic models).
-* **Fix:** Updated the model identifier to an active inference profile (`us.anthropic.claude-3-5-sonnet-20241022-v2:0` / `us.anthropic.claude-sonnet-4-5-20250929-v1:0`) and completed the AWS Bedrock Anthropic model access submission form.
-
-### 3. PowerShell CLI JSON Payload Escaping
-
-* **Issue:** Invoking AWS CLI commands with inline JSON strings (`--payload '{"source":"manual-test"}'`) in PowerShell caused quote parsing errors (`Could not parse payload into json: Unexpected character`).
-* **Fix:** Switched to file-based JSON arguments (`file://policy.json`, `file://payload.json`) or native Python `boto3` script invocations.
-
-### 4. Elasticsearch API Key Privilege Scoping
-
-* **Issue:** The agent needs read permissions on billing indices and write permissions on audit indices, but seeding required administrative rights.
-* **Fix:** Separated credentials into two roles:
-  * **Superuser Key:** Used exclusively for setup & seeding (`scripts/seed_billing.py`).
-  * **Restricted Key:** Used by the agent (`agent.py`) with strict minimal privileges (`read` on `metrics-aws.billing-*`/`deploy-events-*`, `index` on `cost-anomaly-audit-*`).
+### 3. PowerShell Quotes Error
+* **Problem:** Running AWS CLI commands with JSON strings in Windows PowerShell failed because of quote escaping.
+* **Fix:** Saved JSON payloads to a `.json` file and passed `file://payload.json` instead.
 
 ---
 
-## 📁 Repository Layout
+## 📁 Project Folder Structure
 
 ```text
 .
-├── agent.py                 # AWS Lambda handler & Bedrock Converse API loop
-├── aws_native_plug_and_play/# 100% AWS Native Plug & Play mode (Zero external DB)
-│   ├── agent.py             # Native Lambda orchestrator
-│   ├── README.md            # Plug & Play setup & 1-click deployment guide
-│   └── tools/               # AWS Cost Explorer & CloudTrail boto3 tools
-├── tools/
-│   ├── elastic_search.py    # Elasticsearch query functions (billing + deploy lookups)
-│   ├── slack_notify.py      # Slack Block Kit alert builder
-│   └── audit_writer.py      # Audit trail writer for Elasticsearch
-├── scripts/
-│   └── seed_billing.py      # Demo data seeder (7-day baseline + cost spike + deploy event)
-├── tests/
-│   └── test_integration.py  # 8 integration tests (fully mocked, no real cloud calls needed)
-├── architecture_guide.md    # End-to-end conceptual architecture guide
-├── requirements.txt         # Pinned Python dependencies
-├── .env.example             # Environment variable template
-└── .gitignore               # Security exclusions
+├── agent.py                 # Main Lambda code for Elasticsearch mode
+├── aws_native_plug_and_play/# 100% AWS Native mode (No external database needed)
+│   ├── agent.py             # Native Lambda code
+│   ├── README.md            # Quick 2-minute setup guide
+│   └── tools/               # AWS Cost Explorer, Athena CUR, and CloudTrail tools
+├── tools/                   # Elasticsearch and Slack tool files
+├── scripts/                 # Demo data generator script
+├── tests/                   # Automated unit tests
+├── requirements.txt         # Required Python packages
+├── .env.example             # Environment variables example file
+└── .gitignore               # Security exclusions file
 ```
 
 ---
 
-## 🚀 Local Setup & Testing
+## 🚀 How to Run Tests Locally
 
-### 1. Clone & Install Dependencies
-
+### 1. Install Dependencies
 ```bash
-git clone https://github.com/YOUR_USERNAME/elastic-cost-analyzer.git
-cd elastic-cost-analyzer
+git clone https://github.com/AnuragJosyula/autonomous-finops-agent.git
+cd autonomous-finops-agent
 
 python -m venv .venv
 # On Windows PowerShell:
@@ -166,28 +137,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Run Integration Tests
-
+### 2. Run Automated Unit Tests
 ```bash
-python -m unittest tests.test_integration -v
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
-
-*Expected: 8/8 tests pass in ~0.01s (all cloud calls mocked).*
-
----
-
-## 📊 Deployment & Architecture Comparison Matrix
-
-| Feature / Dimension | Mode 1: Elasticsearch Telemetry | Mode 2: AWS Native (Cost Explorer API) | Mode 3: Enterprise AWS Native (Athena CUR / FOCUS) |
-|---|---|---|---|
-| **Target Scale** | Full Observability Stack | Single-Account / Developer Sandbox | Enterprise Multi-Account (AWS Organizations) |
-| **Billing Data Source** | Elasticsearch (`metrics-aws.billing-*`) | AWS Cost Explorer (`ce:GetCostAndUsage`) | AWS CUR Export via S3 + Athena SQL |
-| **Data Standard** | Elastic Common Schema (ECS) | AWS CE Proprietary | **FOCUS 1.4 Standardized Schema** |
-| **Data Granularity** | Index-level daily/hourly spend | Service-level daily/hourly totals | Line-item Resource ARNs, Usage Types, Pricing Models |
-| **Monthly Execution Cost** | ~$3–$5 / month (Lambda + Elastic) | ~$1–$3 / month ($0.01 per CE API call) | **~$5–$8 / month** (Parquet S3 scanning ~$0.30 + Bedrock) |
-| **External Dependencies** | Elastic Cloud Serverless Cluster | **Zero** (Pure AWS Lambda + boto3) | **Zero** (Pure AWS Lambda + S3 + Athena) |
-| **Setup Complexity** | API key & index mapping setup | **1-Click AWS CLI / SAM deploy** | 1-Time CUR S3 Export & Glue Crawler |
-| **Primary Code File** | [`agent.py`](./agent.py) | [`aws_native_plug_and_play/agent.py`](./aws_native_plug_and_play/agent.py) | [`aws_native_plug_and_play/tools/aws_athena_cur.py`](./aws_native_plug_and_play/tools/aws_athena_cur.py) |
+*Expected output: All unit tests pass in under 0.1 seconds.*
 
 ---
 

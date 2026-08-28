@@ -2,11 +2,11 @@
 
 A **100% AWS-Native, Zero-Database** version of the FinOps AI Cost Anomaly Agent.
 
-It queries **AWS Cost Explorer** and **AWS CloudTrail** directly via `boto3` SDK — requiring **zero third-party databases**, zero API keys, and zero external cluster setup!
+It reads **AWS Cost Explorer** and **AWS CloudTrail** directly using the `boto3` Python SDK — requiring **no external databases**, no API keys, and no extra server setup!
 
 ---
 
-## 🗺️ Architecture Overview
+## 🗺️ How It Works
 
 ```text
                       ┌──────────────────────────┐
@@ -25,7 +25,7 @@ It queries **AWS Cost Explorer** and **AWS CloudTrail** directly via `boto3` SDK
      ▼                                           ▼
 ┌────────────────────────────────┐         ┌────────────────────────────────┐
 │     AWS Cost Explorer API      │         │       AWS CloudTrail API       │
-│  - 7-Day Baseline Spend ($)    │         │  - Infrastructure Changes      │
+│  - 7-Day Average Spend ($)     │         │  - Infrastructure Changes      │
 │  - Today's Hourly Spikes ($)   │         │  - EC2/RDS/EKS Modify Calls    │
 └────────────────────────────────┘         └────────────────────────────────┘
      │                                           │
@@ -34,14 +34,14 @@ It queries **AWS Cost Explorer** and **AWS CloudTrail** directly via `boto3` SDK
                              ▼
               ┌──────────────────────────────┐
               │  Amazon Bedrock (Claude AI)  │
-              │  - Synthesizes Root Cause    │
+              │  - Finds Root Cause          │
               │  - Calculates Dollar Savings │
               └──────────────┬───────────────┘
                              │
                              ▼
               ┌──────────────────────────────┐
               │    Slack Webhook (#finops)   │
-              │    Block Kit Alert Card      │
+              │    Alert Card Message        │
               └──────────────────────────────┘
 ```
 
@@ -49,19 +49,19 @@ It queries **AWS Cost Explorer** and **AWS CloudTrail** directly via `boto3` SDK
 
 ## 🌟 Key Features
 
-* ⚡ **Zero Infrastructure Setup:** No Elasticsearch, no vector DB, no external serverless subscriptions.
-* 🔐 **Pure AWS IAM Security:** Uses AWS IAM roles directly (`ce:GetCostAndUsage`, `cloudtrail:LookupEvents`, `bedrock:InvokeModel`).
-* 💰 **Ultra Low Cost:** Only pays for Lambda execution (~10s/day) and Bedrock tokens. Total cost: **~$1–3/month**.
-* 🚀 **1-Click Deployment:** Can be packaged into AWS Lambda directly via AWS CLI, SAM, or Terraform.
+* ⚡ **Zero Database Setup:** No Elasticsearch, no vector DB, no external serverless subscriptions.
+* 🔐 **Pure AWS Security:** Uses standard AWS IAM roles directly (`ce:GetCostAndUsage`, `cloudtrail:LookupEvents`, `bedrock:InvokeModel`).
+* 💰 **Ultra Low Cost:** Only pays for Lambda execution (~10 seconds a day) and Bedrock tokens. Total cost: **~$1–3 per month**.
+* 🚀 **Quick Deployment:** Can be packaged into AWS Lambda in 2 minutes using simple AWS CLI commands.
 
 ---
 
-## 🚀 Quick Deployment Guide
+## 🚀 Quick 4-Step Deployment Guide
 
-### Step 1: Create IAM Role & Attach Policies
+### Step 1: Create IAM Role & Attach Permissions
 
 ```bash
-# Create IAM Role
+# Create IAM Role for Lambda
 aws iam create-role \
   --role-name native-finops-agent-role \
   --assume-role-policy-document '{
@@ -101,14 +101,14 @@ aws iam put-role-policy \
   }'
 ```
 
-### Step 2: Package Code
+### Step 2: Zip the Code
 
 ```bash
 cd aws_native_plug_and_play
 zip -r native-cost-agent.zip agent.py tools/
 ```
 
-### Step 3: Deploy Lambda Function
+### Step 3: Create the AWS Lambda Function
 
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -123,11 +123,13 @@ aws lambda create-function \
   --environment "Variables={SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL,AWS_BEDROCK_REGION=us-east-1,BEDROCK_MODEL_ID=us.anthropic.claude-3-5-sonnet-20241022-v2:0,SPIKE_THRESHOLD_PCT=25.0}"
 ```
 
-### Step 4: Add EventBridge Schedule (Daily at 8 AM UTC)
+### Step 4: Add EventBridge Schedule (Triggers Daily at 8 AM UTC)
 
 ```bash
+# Create Daily Schedule Rule
 aws events put-rule --name native-cost-agent-daily --schedule-expression "cron(0 8 * * ? *)"
 
+# Grant Permission to EventBridge to invoke Lambda
 aws lambda add-permission \
   --function-name native-cost-anomaly-agent \
   --statement-id DailyTrigger \
@@ -135,6 +137,7 @@ aws lambda add-permission \
   --principal events.amazonaws.com \
   --source-arn arn:aws:events:us-east-1:${ACCOUNT_ID}:rule/native-cost-agent-daily
 
+# Attach Target to Rule
 aws events put-targets \
   --rule native-cost-agent-daily \
   --targets "Id"="1","Arn"="arn:aws:lambda:us-east-1:${ACCOUNT_ID}:function:native-cost-anomaly-agent"
@@ -142,27 +145,26 @@ aws events put-targets \
 
 ---
 
-## 🔧 Customization Options
+## 🔧 Simple Customization Options
 
-| Environment Variable | Default Value | Description |
+| Environment Variable | Default Value | What It Does |
 |---|---|---|
-| `COST_PROVIDER` | `COST_EXPLORER` | Billing backend provider (`COST_EXPLORER` for Cost Explorer API or `ATHENA_CUR` for Enterprise Athena CUR/FOCUS) |
-| `ATHENA_DATABASE` | `athenacurcfn_aws_cur` | Glue/Athena database name when `COST_PROVIDER=ATHENA_CUR` |
-| `ATHENA_TABLE` | `aws_cur` | Athena CUR table name (supports FOCUS standardized columns) |
-| `ATHENA_OUTPUT_LOCATION` | `s3://aws-athena-query-results-finops/` | S3 bucket for Athena query output staging |
-| `SLACK_WEBHOOK_URL` | *(Required)* | Slack incoming webhook URL |
-| `SPIKE_THRESHOLD_PCT` | `25.0` | Percentage increase over 7-day average required to trigger alert |
-| `AWS_BEDROCK_REGION` | `us-east-1` | AWS region where Amazon Bedrock model is enabled |
-| `BEDROCK_MODEL_ID` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Amazon Bedrock model ID |
+| `COST_PROVIDER` | `COST_EXPLORER` | Select cost mode (`COST_EXPLORER` for 1 account or `ATHENA_CUR` for 50+ accounts) |
+| `ATHENA_DATABASE` | `athenacurcfn_aws_cur` | Athena database name (only used if `COST_PROVIDER=ATHENA_CUR`) |
+| `ATHENA_TABLE` | `aws_cur` | Athena table name (supports FOCUS billing schema) |
+| `ATHENA_OUTPUT_LOCATION` | `s3://aws-athena-query-results-finops/` | S3 folder for Athena query results |
+| `SLACK_WEBHOOK_URL` | *(Required)* | Your Slack incoming webhook URL |
+| `SPIKE_THRESHOLD_PCT` | `25.0` | Cost increase percentage needed to trigger an alert |
+| `AWS_BEDROCK_REGION` | `us-east-1` | AWS region for Amazon Bedrock model |
+| `BEDROCK_MODEL_ID` | `us.anthropic.claude-3-5-sonnet-20241022-v2:0` | Amazon Bedrock AI model ID |
 
 ---
 
-## 🏢 Enterprise Scaling: Cost Explorer vs Athena CUR (FOCUS)
+## 🏢 Choosing Between Cost Explorer vs Athena CUR (FOCUS)
 
-| Dimension | Cost Explorer API (`COST_EXPLORER`) | Enterprise Athena CUR (`ATHENA_CUR`) |
+| Feature | Cost Explorer API (`COST_EXPLORER`) | Enterprise Athena CUR (`ATHENA_CUR`) |
 |---|---|---|
-| **Best For** | Single-account, quick zero-setup deployment | Multi-account / AWS Organizations, large scale |
-| **Pricing** | $0.01 per API call | ~$0.005 per GB scanned (Athena S3 query) |
-| **Granularity** | Service-level daily/hourly totals | Line-item resource ARNs, usage types, pricing models |
-| **Schema** | Proprietary AWS CE format | Standardized FOCUS schema compatible |
-
+| **Best For?** | Testing on 1 AWS account with zero setup | Large companies with 50+ AWS accounts |
+| **Cost?** | $0.01 per API call | ~$0.005 per GB scanned (S3 query) |
+| **Detail Level?** | Service-level total costs | Resource-level details & billing models |
+| **Format?** | Standard AWS Cost Explorer format | Standard FOCUS 1.4 schema compatible |
