@@ -65,10 +65,10 @@ Reduce minReplicas back to 3 in checkout-service/k8s/hpa.yaml. Estimated daily s
 
 | Question | Mode 1: Cost Explorer API | Mode 2: Enterprise Athena & Glue | Mode 3: Elasticsearch Mode |
 |---|---|---|---|
-| **Best For?** | Quick setup on 1 AWS account | Large setups with 50+ AWS accounts | Learning Elastic Cloud & log indexing |
+| **Best For?** | Quick setup on 1 AWS account | Huge setups with 50+ AWS accounts | Learning Elastic Cloud & log indexing |
 | **Needs Extra Database?** | **No** (Zero setup) | **No** (Uses AWS S3 & Athena) | Yes (Elastic Cloud Serverless) |
 | **Data Source?** | AWS Cost Explorer API | AWS CUR billing files in S3 | Elasticsearch index |
-| **Monthly Cost?** | About $1 to $3 per month | About $5 to $8 per month | About $3 to $5 per month |
+| **Monthly Cost?** | About $1 to $3 per month | **About $5 to $10 per month** | About $3 to $5 per month |
 | **Setup Time?** | 2 minutes | 1-time S3 setup | Needs API key & index setup |
 | **Code Location** | [`aws_native_plug_and_play/`](./aws_native_plug_and_play/) | [`aws_native_plug_and_play/tools/aws_athena_cur.py`](./aws_native_plug_and_play/tools/aws_athena_cur.py) | [`agent.py`](./agent.py) |
 
