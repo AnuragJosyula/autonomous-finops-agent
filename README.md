@@ -24,6 +24,7 @@ This project is an **agentic cloud cost monitoring system**. Instead of engineer
 * **Zero Manual Triage:** The agent runs on a daily schedule, calculates a 7-day baseline, and flags any service exceeding its baseline by $\ge 25\%$.
 * **Automated Root-Cause Correlation:** Matches the exact hour of the cost spike with recent CI/CD code deployments ($\pm 12\text{h}$ window).
 * **Actionable Dollar Savings:** Provides specific engineering fix instructions along with estimated daily dollar savings.
+* **Hands-on Observability:** Originally built with Elastic Cloud Serverless (ELK) to get hands-on experience with unified telemetry & audit data streams, with a 100% AWS-Native Plug & Play alternative included for zero-database setups.
 * **Low Cost:** Completely serverless — costs ~$3–5/month to run.
 
 ---
