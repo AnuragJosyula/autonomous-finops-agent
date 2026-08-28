@@ -51,7 +51,7 @@ It reads **AWS Cost Explorer** and **AWS CloudTrail** directly using the `boto3`
 
 * ⚡ **Zero Database Setup:** No Elasticsearch, no vector DB, no external serverless subscriptions.
 * 🔐 **Pure AWS Security:** Uses standard AWS IAM roles directly (`ce:GetCostAndUsage`, `cloudtrail:LookupEvents`, `bedrock:InvokeModel`).
-* 💰 **Ultra Low Cost:** Only pays for Lambda execution (~10 seconds a day) and Bedrock tokens. Total cost: **~$1–3 per month**.
+* 💰 **Ultra Low Cost:** Only pays for Lambda execution (10 seconds a day) and Bedrock tokens. Total cost: **About $1 to $3 per month**.
 * 🚀 **Quick Deployment:** Can be packaged into AWS Lambda in 2 minutes using simple AWS CLI commands.
 
 ---
@@ -165,6 +165,6 @@ aws events put-targets \
 | Feature | Cost Explorer API (`COST_EXPLORER`) | Enterprise Athena CUR (`ATHENA_CUR`) |
 |---|---|---|
 | **Best For?** | Testing on 1 AWS account with zero setup | Large companies with 50+ AWS accounts |
-| **Cost?** | $0.01 per API call | ~$0.005 per GB scanned (S3 query) |
+| **Cost?** | $0.01 per API call | About $0.005 per GB scanned (S3 query) |
 | **Detail Level?** | Service-level total costs | Resource-level details & billing models |
 | **Format?** | Standard AWS Cost Explorer format | Standard FOCUS 1.4 schema compatible |
