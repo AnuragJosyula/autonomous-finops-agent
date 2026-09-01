@@ -37,7 +37,7 @@ Run abc123 · 1 anomaly · 4.2s
 
 ───────────────────────────────────────
 Amazon EC2 · AWS Account
-Today: $847.20 (+43.1% vs 7-day avg)
+Aug 31 (last full day): $847.20 (+43.1% vs 7-day avg)
 Baseline: $592.10/day · Delta: +$255.10
 
 🔍 Root Cause:
@@ -86,11 +86,14 @@ See [`aws_native_plug_and_play/README.md`](./aws_native_plug_and_play/README.md)
 | `SPIKE_THRESHOLD_PCT` | `25.0` | % above baseline to trigger alert |
 | `SLACK_WEBHOOK_URL` | *(required)* | Slack incoming webhook |
 | `AWS_BEDROCK_REGION` | `us-east-1` | Bedrock region |
-| `AWS_REGION` | `us-east-1` | Region for Cost Explorer, CloudTrail, Athena |
-| `AGENT_MAX_ITERATIONS` | `5` | Max Bedrock loop iterations (cost guard) |
-| `ATHENA_DATABASE` | `athenacurcfn_aws_cur` | Athena DB (only for `ATHENA_CUR`) |
+| `FINOPS_AWS_REGION` | `us-east-1` | Region for Cost Explorer, CloudTrail, Athena |
+| `AGENT_MAX_ITERATIONS` | `8` | Max Bedrock loop iterations (cost guard) |
+| `ATHENA_DATABASE` | `athenacurcfn_aws_c_u_r` | Athena DB (only for `ATHENA_CUR`) |
 | `ATHENA_TABLE` | `aws_cur` | Athena table (only for `ATHENA_CUR`) |
-| `ATHENA_OUTPUT_LOCATION` | `s3://aws-athena-query-results-finops/` | Athena results S3 path |
+| `ATHENA_OUTPUT_LOCATION` | *(workgroup default)* | Athena results S3 path |
+
+> `FINOPS_AWS_REGION` exists because `AWS_REGION` is a **reserved** Lambda environment variable and cannot be set on a function. It falls back to `AWS_REGION`, then `us-east-1`.
+
 
 ---
 

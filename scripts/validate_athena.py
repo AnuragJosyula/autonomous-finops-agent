@@ -1,172 +1,196 @@
 #!/usr/bin/env python3
 """
-scripts/validate_athena.py — Validate Athena CUR setup before running the agent.
+scripts/validate_athena.py — Validate the Athena CUR setup before running the agent.
 
-Checks:
-  1. Database and table exist
-  2. FOCUS 1.4 vs legacy CUR columns detected
-  3. Sample cost query returns data
-  4. find_spike_services() runs end-to-end
+Run this after the CUR Glue crawler stack is deployed. Every check prints the
+actual value it found, so a failure tells you what to change.
 
 Usage:
-  export ATHENA_DATABASE=athenacurcfn_aws_cur
+  export ATHENA_DATABASE=athenacurcfn_aws_c_u_r
   export ATHENA_TABLE=aws_cur
   export ATHENA_OUTPUT_LOCATION=s3://aws-cur-reports-anurag/athena-results/
   python scripts/validate_athena.py
 """
 
+import logging
 import os
 import sys
 
-# Add project root to path so we can import tools
+# Import the agent's own tools package.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aws_native_plug_and_play"))
 
-import logging
-
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
 PASS = "\033[92m✓ PASS\033[0m"
 FAIL = "\033[91m✗ FAIL\033[0m"
-
-FOCUS_COLUMNS = {"servicename", "billedcost", "chargeperiodstart", "chargeperiodend", "billingaccountid"}
-LEGACY_COLUMNS = {"line_item_product_code", "line_item_unblended_cost", "line_item_usage_start_date"}
+WARN = "\033[93m! WARN\033[0m"
 
 
-def check_env():
-    """Check required env vars are set."""
-    db = os.environ.get("ATHENA_DATABASE")
-    table = os.environ.get("ATHENA_TABLE")
-    output = os.environ.get("ATHENA_OUTPUT_LOCATION")
+def check_env() -> bool:
+    """ATHENA_DATABASE and ATHENA_TABLE are required; the output location may
+    come from the workgroup instead."""
+    from tools.aws_athena_cur import (
+        ATHENA_DATABASE, ATHENA_TABLE, ATHENA_OUTPUT_LOCATION,
+        ATHENA_WORKGROUP, ATHENA_REGION,
+    )
 
-    if not all([db, table, output]):
-        print(f"{FAIL}  Missing env vars. Need: ATHENA_DATABASE, ATHENA_TABLE, ATHENA_OUTPUT_LOCATION")
-        print(f"       Got: db={db}, table={table}, output={output}")
-        return False
-    print(f"{PASS}  Env vars set: db={db}, table={table}")
+    print(f"       database={ATHENA_DATABASE}  table={ATHENA_TABLE}")
+    print(f"       region={ATHENA_REGION}  workgroup={ATHENA_WORKGROUP}")
+    print(f"       output={ATHENA_OUTPUT_LOCATION or '(from workgroup)'}")
+
+    if not ATHENA_OUTPUT_LOCATION:
+        import boto3
+        try:
+            wg = boto3.client("athena", region_name=ATHENA_REGION).get_work_group(
+                WorkGroup=ATHENA_WORKGROUP
+            )["WorkGroup"]
+            location = wg["Configuration"].get("ResultConfiguration", {}).get("OutputLocation")
+        except Exception as e:
+            print(f"{FAIL}  Could not read workgroup {ATHENA_WORKGROUP}: {e}")
+            return False
+        if not location:
+            print(f"{FAIL}  No ATHENA_OUTPUT_LOCATION set and workgroup "
+                  f"'{ATHENA_WORKGROUP}' has none either. Queries will not start.")
+            return False
+        print(f"{PASS}  Output location from workgroup: {location}")
+        return True
+
+    print(f"{PASS}  Configuration present")
     return True
 
 
-def check_table_exists():
-    """Verify the Athena table exists via SHOW TABLES."""
-    from tools.aws_athena_cur import run_athena_query, ATHENA_DATABASE, ATHENA_TABLE
+def check_schema():
+    """Detect the CUR flavour and partition layout from Glue."""
+    from tools.aws_athena_cur import CostQueryError, detect_schema
 
-    records = run_athena_query(f'SHOW TABLES IN "{ATHENA_DATABASE}"')
-    if not records:
-        print(f"{FAIL}  Could not list tables in database '{ATHENA_DATABASE}'")
-        return False
-
-    # SHOW TABLES returns rows with a single 'tab_name' column
-    table_names = set()
-    for r in records:
-        for v in r.values():
-            table_names.add(v.lower())
-
-    expected = ATHENA_TABLE.lower()
-    if expected in table_names:
-        print(f"{PASS}  Table '{ATHENA_TABLE}' found in database '{ATHENA_DATABASE}'")
-        return True
-    else:
-        print(f"{FAIL}  Table '{ATHENA_TABLE}' NOT found. Available: {sorted(table_names)}")
-        return False
-
-
-def check_columns():
-    """Detect FOCUS 1.4 vs legacy CUR columns."""
-    from tools.aws_athena_cur import run_athena_query, ATHENA_DATABASE, ATHENA_TABLE
-
-    records = run_athena_query(f'SHOW COLUMNS IN "{ATHENA_DATABASE}"."{ATHENA_TABLE}"')
-    if not records:
-        print(f"{FAIL}  Could not list columns")
+    try:
+        schema = detect_schema(refresh=True)
+    except CostQueryError as e:
+        print(f"{FAIL}  {e}")
         return None
 
-    col_names = set()
-    for r in records:
-        for v in r.values():
-            col_names.add(v.lower().strip())
+    print(f"{PASS}  Detected {schema.flavor.upper()} CUR schema")
+    print(f"       service={schema.service_col}")
+    print(f"       cost={schema.cost_col}")
+    print(f"       time={schema.time_col}")
+    print(f"       partitions={schema.partition_style}")
 
-    has_focus = FOCUS_COLUMNS.issubset(col_names)
-    has_legacy = LEGACY_COLUMNS.issubset(col_names)
-
-    if has_focus:
-        print(f"{PASS}  FOCUS 1.4 columns detected (ServiceName, BilledCost, etc.)")
-    elif has_legacy:
-        print(f"{PASS}  Legacy CUR columns detected (line_item_product_code, etc.)")
-    else:
-        print(f"{FAIL}  Neither FOCUS nor legacy CUR columns found")
-        print(f"       Columns found: {sorted(list(col_names)[:20])}...")
-
-    return "focus" if has_focus else ("legacy" if has_legacy else None)
+    if schema.partition_style == "none":
+        print(f"{WARN}  No partition keys — every query will scan the whole table.")
+    if not schema.usage_filter:
+        print(f"{WARN}  No line-item-type column: Tax/Credit/Refund rows will be "
+              "counted as spend.")
+    return schema
 
 
-def check_sample_query():
-    """Run a simple cost query to verify data exists."""
-    from tools.aws_athena_cur import run_athena_query, ATHENA_DATABASE, ATHENA_TABLE
+def check_partitions_registered() -> bool:
+    """A crawler that has not run leaves the table empty even though S3 has data."""
+    from tools.aws_athena_cur import (
+        ATHENA_DATABASE, ATHENA_TABLE, CostQueryError, run_athena_query,
+    )
 
-    query = f"""
-        SELECT COUNT(*) AS row_count,
-               SUM(CAST(COALESCE(BilledCost, line_item_unblended_cost) AS double)) AS total_cost
-        FROM "{ATHENA_DATABASE}"."{ATHENA_TABLE}"
-        LIMIT 1
-    """
-    records = run_athena_query(query)
-    if not records:
-        print(f"{FAIL}  Sample query returned no results (CUR data may not have landed yet)")
+    try:
+        rows = run_athena_query(f'SHOW PARTITIONS "{ATHENA_DATABASE}"."{ATHENA_TABLE}"')
+    except CostQueryError as e:
+        print(f"{WARN}  Could not list partitions ({e}). Continuing.")
+        return True
+
+    if not rows:
+        print(f"{FAIL}  Table has no registered partitions. Run the Glue crawler "
+              f"'AWSCURCrawler-<report-name>' and re-check.")
         return False
 
-    row_count = records[0].get("row_count", "0")
-    total_cost = records[0].get("total_cost", "0")
-    print(f"{PASS}  Sample query: {row_count} rows, ${float(total_cost):,.2f} total cost")
-    return int(row_count) > 0
+    values = [next(iter(r.values()), "") for r in rows]
+    print(f"{PASS}  {len(values)} partition(s) registered: {values[:6]}")
+    return True
 
 
-def check_spike_detection():
-    """Run find_spike_services() end-to-end."""
-    from tools.aws_athena_cur import find_spike_services
+def check_daily_costs() -> bool:
+    """Pull the real daily cost matrix — this exercises the generated SQL end to end."""
+    from tools.aws_athena_cur import CostQueryError, get_daily_costs
+
+    try:
+        daily = get_daily_costs()
+    except CostQueryError as e:
+        print(f"{FAIL}  {e}")
+        return False
+
+    if not daily:
+        print(f"{FAIL}  Query succeeded but returned no rows — CUR data may not "
+              "have landed for this window yet.")
+        return False
+
+    days = sorted({d for series in daily.values() for d in series})
+    total = sum(sum(s.values()) for s in daily.values())
+    print(f"{PASS}  {len(daily)} service(s) across {len(days)} day(s), ${total:,.2f} total")
+    print(f"       days: {[d.isoformat() for d in days]}")
+
+    top = sorted(
+        ((svc, sum(s.values())) for svc, s in daily.items()),
+        key=lambda x: x[1], reverse=True,
+    )[:5]
+    for svc, amount in top:
+        print(f"       → {svc}: ${amount:,.2f}")
+    return True
+
+
+def check_spike_detection() -> bool:
+    """Run the real detector. Zero spikes is a pass; an exception is not."""
+    from tools.aws_athena_cur import CostQueryError, find_spike_services
 
     try:
         spikes = find_spike_services(threshold_pct=25.0)
-        print(f"{PASS}  find_spike_services() returned {len(spikes)} spike(s)")
-        for s in spikes[:5]:
-            print(f"       → {s['service']}: ${s['today_usd']:.2f} today vs ${s['baseline_usd']:.2f} baseline ({s['pct_change']:+.1f}%)")
-        return True
-    except Exception as e:
-        print(f"{FAIL}  find_spike_services() raised: {e}")
+    except CostQueryError as e:
+        print(f"{FAIL}  {e}")
         return False
+
+    if not spikes:
+        print(f"{PASS}  find_spike_services() ran; no anomalies above 25% "
+              "(expected on a quiet account)")
+        return True
+
+    print(f"{PASS}  find_spike_services() found {len(spikes)} spike(s)")
+    for s in spikes[:5]:
+        print(f"       → {s['service']} on {s['as_of']}: ${s['current_usd']:,.2f} "
+              f"vs ${s['baseline_usd']:,.2f} baseline ({s['pct_change']:+.1f}%)")
+    return True
 
 
 def main():
-    print("=" * 60)
+    print("=" * 64)
     print("  Athena CUR Validation")
-    print("=" * 60)
+    print("=" * 64)
     print()
 
-    results = {}
+    results: dict[str, bool] = {}
 
-    results["env"] = check_env()
-    if not results["env"]:
+    results["config"] = check_env()
+    if not results["config"]:
         sys.exit(1)
 
     print()
-    results["table"] = check_table_exists()
+    schema = check_schema()
+    results["schema"] = schema is not None
+    if not schema:
+        print("\nCannot continue without a readable table.")
+        sys.exit(1)
 
     print()
-    results["columns"] = check_columns() is not None
+    results["partitions"] = check_partitions_registered()
 
     print()
-    results["data"] = check_sample_query()
+    results["data"] = check_daily_costs()
 
     print()
-    results["spike"] = check_spike_detection()
+    results["spikes"] = check_spike_detection() if results["data"] else False
 
     print()
-    print("=" * 60)
+    print("=" * 64)
     passed = sum(1 for v in results.values() if v)
-    total = len(results)
-    print(f"  Results: {passed}/{total} checks passed")
-    print("=" * 60)
+    print(f"  {passed}/{len(results)} checks passed")
+    print("=" * 64)
 
-    sys.exit(0 if passed == total else 1)
+    sys.exit(0 if passed == len(results) else 1)
 
 
 if __name__ == "__main__":

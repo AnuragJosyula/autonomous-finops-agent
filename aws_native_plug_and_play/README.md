@@ -107,8 +107,11 @@ aws events put-targets \
 | `SPIKE_THRESHOLD_PCT` | `25.0` | % above baseline to flag |
 | `SLACK_WEBHOOK_URL` | *(required)* | Slack webhook URL |
 | `AWS_BEDROCK_REGION` | `us-east-1` | Bedrock region |
-| `AWS_REGION` | `us-east-1` | Cost Explorer / CloudTrail / Athena region |
-| `AGENT_MAX_ITERATIONS` | `5` | Max Bedrock loop iterations |
+| `FINOPS_AWS_REGION` | `us-east-1` | Cost Explorer / CloudTrail / Athena region |
+| `AGENT_MAX_ITERATIONS` | `8` | Max Bedrock loop iterations |
+
+> `FINOPS_AWS_REGION` exists because `AWS_REGION` is a **reserved** Lambda environment variable and cannot be set on a function. It falls back to `AWS_REGION`, then `us-east-1`.
+
 
 ### Athena CUR mode (enterprise)
 
@@ -116,9 +119,9 @@ Set `COST_PROVIDER=ATHENA_CUR` and add:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ATHENA_DATABASE` | `athenacurcfn_aws_cur` | Glue database name |
+| `ATHENA_DATABASE` | `athenacurcfn_aws_c_u_r` | Glue database name |
 | `ATHENA_TABLE` | `aws_cur` | CUR table name |
-| `ATHENA_OUTPUT_LOCATION` | `s3://aws-athena-query-results-finops/` | Athena results bucket |
+| `ATHENA_OUTPUT_LOCATION` | *(workgroup default)* | Athena results bucket |
 
 ---
 
