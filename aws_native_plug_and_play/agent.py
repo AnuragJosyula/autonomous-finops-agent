@@ -30,7 +30,7 @@ from tools.aws_cloudtrail import find_deploys_near_spike
 from tools.slack_notify import post_slack_alert
 
 # Configuration
-MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 MAX_ITERATIONS = int(os.environ.get("AGENT_MAX_ITERATIONS", "20"))
 SPIKE_THRESHOLD_PCT = float(os.environ.get("SPIKE_THRESHOLD_PCT", "25.0"))
 BEDROCK_REGION = os.environ.get("AWS_BEDROCK_REGION", "us-east-1")
@@ -178,10 +178,13 @@ class NativeAWSFinOpsAgent:
 
                         try:
                             result = TOOL_DISPATCH[tool_name](tool_input)
+                            # Bedrock Converse requires toolResult.json to be a JSON object (dict),
+                            # not a list. Wrap all results to guarantee a valid object.
+                            json_result = result if isinstance(result, dict) else {"result": result}
                             tool_results.append({
                                 "toolResult": {
                                     "toolUseId": tool_use_id,
-                                    "content": [{"json": result}],
+                                    "content": [{"json": json_result}],
                                 }
                             })
                         except Exception as e:
