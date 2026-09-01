@@ -31,7 +31,7 @@ from tools.slack_notify import post_slack_alert
 
 # Configuration
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
-MAX_ITERATIONS = int(os.environ.get("AGENT_MAX_ITERATIONS", "20"))
+MAX_ITERATIONS = int(os.environ.get("AGENT_MAX_ITERATIONS", "5"))
 SPIKE_THRESHOLD_PCT = float(os.environ.get("SPIKE_THRESHOLD_PCT", "25.0"))
 BEDROCK_REGION = os.environ.get("AWS_BEDROCK_REGION", "us-east-1")
 
