@@ -37,6 +37,29 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 logger = logging.getLogger("demo")
 
+
+def _load_env_local() -> None:
+    """
+    Load .env.local into os.environ if present, without overriding real env vars.
+
+    Keeps the webhook out of shell history and out of the repo — .env.local is
+    gitignored. Deliberately dependency-free; this is not a full dotenv parser.
+    """
+    path = os.path.join(os.path.dirname(__file__), "..", ".env.local")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+    logger.info("Loaded .env.local")
+
 # ---------------------------------------------------------------------------
 # Fixtures — a plausible HPA misconfiguration after a deploy.
 # ---------------------------------------------------------------------------
@@ -102,11 +125,25 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not os.environ.get("SLACK_WEBHOOK_URL", "").strip():
+    _load_env_local()
+
+    webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
+    if not webhook:
         print(
             "SLACK_WEBHOOK_URL is not set.\n\n"
-            "Create an incoming webhook at https://api.slack.com/messaging/webhooks\n"
-            "then:  export SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...",
+            "Get an *incoming webhook* (not the Client Secret or Signing Secret —\n"
+            "those cannot post messages): https://api.slack.com/apps -> your app ->\n"
+            "Features -> Incoming Webhooks -> Add New Webhook to Workspace.\n\n"
+            "Then put it in .env.local, which is gitignored:\n"
+            "  echo 'SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...' >> .env.local",
+            file=sys.stderr,
+        )
+        return 2
+
+    if not webhook.startswith("https://hooks.slack.com/"):
+        print(
+            f"SLACK_WEBHOOK_URL does not look like an incoming webhook: {webhook[:30]}...\n"
+            "It must start with https://hooks.slack.com/services/",
             file=sys.stderr,
         )
         return 2
