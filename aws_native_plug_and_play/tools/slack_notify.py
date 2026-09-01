@@ -41,6 +41,31 @@ def _webhook_url() -> str:
     return url
 
 
+def _as_text(value: Any) -> str:
+    """
+    Coerce a cause/suggestion into display text.
+
+    The model is asked for strings, but a tool schema cannot hard-guarantee it.
+    Rendering str(dict) into a Slack card looks broken, so pull the most likely
+    prose field out of an object instead.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("summary", "action", "text", "cause", "suggestion", "description"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        # Fall back to the longest string field rather than dumping the dict.
+        strings = [v.strip() for v in value.values() if isinstance(v, str) and v.strip()]
+        if strings:
+            return max(strings, key=len)
+    if isinstance(value, (list, tuple)):
+        parts = [_as_text(v) for v in value]
+        return " ".join(p for p in parts if p)
+    return str(value)
+
+
 def _build_anomaly_section(
     anomaly: dict[str, Any],
     cause: str,
@@ -140,9 +165,22 @@ def post_slack_alert(
     ]
 
     for i, anomaly in enumerate(anomalies):
-        cause = causes[i] if i < len(causes) else "Not determined"
-        suggestion = suggestions[i] if i < len(suggestions) else "No suggestion"
+        cause = _as_text(causes[i]) if i < len(causes) else "Not determined"
+        suggestion = _as_text(suggestions[i]) if i < len(suggestions) else "No suggestion"
         blocks.extend(_build_anomaly_section(anomaly, cause, suggestion))
+
+    # Demo runs use synthetic cost data. Say so in the message rather than
+    # leaving a fabricated alert indistinguishable from a real detection.
+    if run_meta.get("demo"):
+        blocks.append({
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "⚠️ *Demo run* — synthetic cost data, not a live AWS detection.",
+                }
+            ],
+        })
 
     payload = json.dumps({"blocks": blocks}).encode("utf-8")
     request = urllib.request.Request(

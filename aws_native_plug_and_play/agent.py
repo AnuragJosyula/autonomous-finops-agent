@@ -139,9 +139,31 @@ BEDROCK_TOOL_DEFINITIONS: list[dict] = [
                 "json": {
                     "type": "object",
                     "properties": {
-                        "anomalies": {"type": "array"},
-                        "causes": {"type": "array"},
-                        "suggestions": {"type": "array"},
+                        "anomalies": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": (
+                                "The anomaly objects from find_spike_services, "
+                                "passed through unchanged."
+                            ),
+                        },
+                        "causes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "One plain-text root-cause sentence per anomaly, in "
+                                "the same order as anomalies. Strings, not objects."
+                            ),
+                        },
+                        "suggestions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "One plain-text fix per anomaly, under 25 words, "
+                                "including an estimated dollar saving. Same order as "
+                                "anomalies. Strings, not objects."
+                            ),
+                        },
                         "run_meta": {"type": "object"},
                     },
                     "required": ["anomalies", "causes", "suggestions", "run_meta"],
@@ -191,6 +213,19 @@ class NativeAWSFinOpsAgent:
         """Call a tool and wrap the result for the Bedrock Converse API."""
         if tool_name not in TOOL_DISPATCH:
             raise KeyError(f"Unknown tool: {tool_name}")
+
+        if tool_name == "post_slack_alert":
+            # Run telemetry is measured, not reported by the model — otherwise the
+            # alert carries whatever duration the model happened to guess.
+            tool_input = {
+                **tool_input,
+                "run_meta": {
+                    **tool_input.get("run_meta", {}),
+                    "run_id": self.run_id,
+                    "duration_seconds": round(time.time() - self.start_time, 2),
+                },
+            }
+
         result = TOOL_DISPATCH[tool_name](tool_input)
         # Converse requires toolResult.json to be a dict, not a bare list.
         return result if isinstance(result, dict) else {"result": result}
