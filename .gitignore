@@ -17,6 +17,10 @@ build/
 # IDE
 .vscode/
 .idea/
+.agents/
 
 # Build artifacts
-cost-anomaly-agent.zip
+*.zip
+
+# Agent run logs
+agent_run.log

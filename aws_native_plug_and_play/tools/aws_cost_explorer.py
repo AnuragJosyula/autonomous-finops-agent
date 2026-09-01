@@ -1,11 +1,11 @@
 """
-tools/aws_cost_explorer.py — Native AWS Cost Explorer query functions.
+tools/aws_cost_explorer.py — AWS Cost Explorer query functions.
 
 Queries AWS Cost Explorer API directly via boto3 (ce:GetCostAndUsage).
-No external database or setup required!
 """
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,28 +13,26 @@ import boto3
 
 logger = logging.getLogger(__name__)
 
+CE_REGION = os.environ.get("AWS_REGION", "us-east-1")
+
 
 def _get_ce_client():
     """Return a boto3 Cost Explorer client."""
-    return boto3.client("ce", region_name="us-east-1")
+    return boto3.client("ce", region_name=CE_REGION)
 
 
 def get_7day_baseline(service: str | None = None) -> dict[str, float]:
-    """
-    Calculate 7-day average daily spend per AWS service using AWS Cost Explorer API.
-    """
+    """Calculate 7-day average daily spend per AWS service."""
     ce = _get_ce_client()
     today = datetime.now(timezone.utc).date()
     seven_days_ago = today - timedelta(days=7)
 
-    time_period = {
-        "Start": seven_days_ago.strftime("%Y-%m-%d"),
-        "End": today.strftime("%Y-%m-%d"),
-    }
-
     try:
         response = ce.get_cost_and_usage(
-            TimePeriod=time_period,
+            TimePeriod={
+                "Start": seven_days_ago.strftime("%Y-%m-%d"),
+                "End": today.strftime("%Y-%m-%d"),
+            },
             Granularity="DAILY",
             Metrics=["UnblendedCost"],
             GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
@@ -47,7 +45,6 @@ def get_7day_baseline(service: str | None = None) -> dict[str, float]:
                 cost = float(group["Metrics"]["UnblendedCost"]["Amount"])
                 service_totals[svc_name] = service_totals.get(svc_name, 0.0) + cost
 
-        # Calculate daily average over 7 days
         baselines = {
             svc: round(total / 7.0, 2)
             for svc, total in service_totals.items()
@@ -59,26 +56,22 @@ def get_7day_baseline(service: str | None = None) -> dict[str, float]:
         return baselines
 
     except Exception as e:
-        logger.error("Failed to query AWS Cost Explorer baseline: %s", e)
+        logger.error("Cost Explorer baseline query failed: %s", e)
         return {}
 
 
 def get_todays_cost(service: str | None = None) -> dict[str, float]:
-    """
-    Get today's AWS spend since midnight UTC using AWS Cost Explorer API.
-    """
+    """Get today's spend since midnight UTC per AWS service."""
     ce = _get_ce_client()
     today = datetime.now(timezone.utc).date()
     tomorrow = today + timedelta(days=1)
 
-    time_period = {
-        "Start": today.strftime("%Y-%m-%d"),
-        "End": tomorrow.strftime("%Y-%m-%d"),
-    }
-
     try:
         response = ce.get_cost_and_usage(
-            TimePeriod=time_period,
+            TimePeriod={
+                "Start": today.strftime("%Y-%m-%d"),
+                "End": tomorrow.strftime("%Y-%m-%d"),
+            },
             Granularity="DAILY",
             Metrics=["UnblendedCost"],
             GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
@@ -96,14 +89,13 @@ def get_todays_cost(service: str | None = None) -> dict[str, float]:
         return costs
 
     except Exception as e:
-        logger.error("Failed to query AWS Cost Explorer today's cost: %s", e)
+        logger.error("Cost Explorer today's cost query failed: %s", e)
         return {}
 
 
 def find_spike_services(threshold_pct: float) -> list[dict[str, Any]]:
     """
-    Compare today's AWS spend vs 7-day baseline directly via Cost Explorer.
-    Flag services exceeding baseline by >= threshold_pct.
+    Compare today's spend vs 7-day baseline. Flag services exceeding threshold_pct.
     """
     baselines = get_7day_baseline()
     todays = get_todays_cost()
@@ -131,9 +123,7 @@ def find_spike_services(threshold_pct: float) -> list[dict[str, Any]]:
 
 
 def get_cost_timeseries(service: str, hours: int = 48) -> list[dict[str, Any]]:
-    """
-    Get hourly cost data for a specific AWS service over the past N hours using Cost Explorer.
-    """
+    """Get hourly cost data for a specific AWS service over the past N hours."""
     ce = _get_ce_client()
     now = datetime.now(timezone.utc)
     start_time = now - timedelta(hours=hours)
@@ -165,5 +155,5 @@ def get_cost_timeseries(service: str, hours: int = 48) -> list[dict[str, Any]]:
         return timeseries
 
     except Exception as e:
-        logger.error("Failed to query hourly Cost Explorer timeseries for %s: %s", service, e)
+        logger.error("Cost Explorer timeseries query for %s failed: %s", service, e)
         return []
