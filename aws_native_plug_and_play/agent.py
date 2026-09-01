@@ -150,6 +150,7 @@ class NativeAWSFinOpsAgent:
         ]
 
         for iteration in range(MAX_ITERATIONS):
+            logger.info("── Iteration %d/%d ──", iteration + 1, MAX_ITERATIONS)
             response = self.bedrock.converse(
                 modelId=MODEL_ID,
                 system=[{"text": SYSTEM_PROMPT}],
@@ -163,7 +164,13 @@ class NativeAWSFinOpsAgent:
             output_message = response["output"]["message"]
             messages.append(output_message)
 
+            # Log model text blocks
+            for block in output_message["content"]:
+                if "text" in block:
+                    logger.info("Model: %s", block["text"][:500])
+
             stop_reason = response["stopReason"]
+            logger.info("Stop reason: %s | Tokens so far: %d", stop_reason, self.total_tokens)
             if stop_reason == "end_turn":
                 break
 
@@ -176,11 +183,13 @@ class NativeAWSFinOpsAgent:
                         tool_input = tool_use["input"]
                         tool_use_id = tool_use["toolUseId"]
 
+                        logger.info("Tool call: %s(%s)", tool_name, tool_input)
                         try:
                             result = TOOL_DISPATCH[tool_name](tool_input)
                             # Bedrock Converse requires toolResult.json to be a JSON object (dict),
                             # not a list. Wrap all results to guarantee a valid object.
                             json_result = result if isinstance(result, dict) else {"result": result}
+                            logger.info("Tool result: %s", str(json_result)[:500])
                             tool_results.append({
                                 "toolResult": {
                                     "toolUseId": tool_use_id,
@@ -188,6 +197,7 @@ class NativeAWSFinOpsAgent:
                                 }
                             })
                         except Exception as e:
+                            logger.error("Tool error: %s → %s", tool_name, e)
                             tool_results.append({
                                 "toolResult": {
                                     "toolUseId": tool_use_id,
