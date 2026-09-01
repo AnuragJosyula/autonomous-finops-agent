@@ -14,6 +14,9 @@ from typing import Any
 
 import boto3
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 COST_PROVIDER = os.environ.get("COST_PROVIDER", "COST_EXPLORER").upper()
 
 if COST_PROVIDER == "ATHENA_CUR":
@@ -25,9 +28,6 @@ else:
 
 from tools.aws_cloudtrail import find_deploys_near_spike
 from tools.slack_notify import post_slack_alert
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 # Configuration
 MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
