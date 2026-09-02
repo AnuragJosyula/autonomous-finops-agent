@@ -79,9 +79,20 @@ def _build_anomaly_section(
     current = anomaly.get("current_usd", anomaly.get("today_usd", 0.0))
     baseline = anomaly.get("baseline_usd", 0.0)
     delta = anomaly.get("delta_usd", 0.0)
-    pct = anomaly.get("pct_change", 0.0)
+    pct = anomaly.get("pct_change")
     as_of = anomaly.get("as_of")
     day_label = f" ({as_of})" if as_of else ""
+
+    if anomaly.get("is_new_service") or pct is None:
+        change_line = (
+            f"Last full day{day_label}: *${current:,.2f}*  🆕 new cost source\n"
+            f"No prior 7-day baseline  ·  Delta: *+${delta:,.2f}*"
+        )
+    else:
+        change_line = (
+            f"Last full day{day_label}: *${current:,.2f}*  (+{pct}% vs 7-day avg)\n"
+            f"Baseline: ${baseline:,.2f}/day  ·  Delta: *+${delta:,.2f}*"
+        )
 
     return [
         {"type": "divider"},
@@ -89,11 +100,7 @@ def _build_anomaly_section(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (
-                    f"*{svc}*  ·  `{team}`\n"
-                    f"Last full day{day_label}: *${current:,.2f}*  (+{pct}% vs 7-day avg)\n"
-                    f"Baseline: ${baseline:,.2f}/day  ·  Delta: *+${delta:,.2f}*"
-                ),
+                "text": f"*{svc}*  ·  `{team}`\n{change_line}",
             },
         },
         {

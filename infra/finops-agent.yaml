@@ -1,0 +1,166 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Autonomous AWS FinOps cost-anomaly agent. A daily EventBridge schedule invokes a
+  Lambda that queries CUR via Athena (partition projection, no crawler), correlates
+  spikes with CloudTrail, reasons with Bedrock, and posts to Slack. Delete this stack
+  to remove everything it created; the Glue table finops_cur.cur_projected and the
+  CUR export itself are created outside the stack and are not removed by it.
+
+Parameters:
+  SlackWebhookUrl:
+    Type: String
+    NoEcho: true
+    Description: Slack incoming webhook URL. Stored as a Lambda env var (throwaway use).
+  CodeS3Bucket:
+    Type: String
+    Description: S3 bucket holding the Lambda deployment zip.
+  CodeS3Key:
+    Type: String
+    Description: S3 key of the Lambda deployment zip.
+  CurBucket:
+    Type: String
+    Default: aws-cur-reports-anurag
+    Description: Bucket holding CUR data and Athena results.
+  AthenaDatabase:
+    Type: String
+    Default: finops_cur
+  AthenaTable:
+    Type: String
+    Default: cur_projected
+  AthenaOutputLocation:
+    Type: String
+    Default: s3://aws-cur-reports-anurag/athena-results/
+  BedrockModelId:
+    Type: String
+    Default: us.anthropic.claude-sonnet-4-6
+  SpikeThresholdPct:
+    Type: String
+    Default: "25.0"
+  MinBaselineUsd:
+    Type: String
+    Default: "1.0"
+  NewServiceUsd:
+    Type: String
+    Default: "0.05"
+    Description: >
+      Absolute daily USD at which a new/dormant service is flagged. 0.05 catches
+      the demo instance; raise to 5-25 for production to avoid noise.
+  ScheduleExpression:
+    Type: String
+    Default: cron(0 16 * * ? *)
+    Description: When to run. Default 16:00 UTC daily.
+
+Resources:
+  AgentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: finops-agent
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Sid: Athena
+                Effect: Allow
+                Action:
+                  - athena:StartQueryExecution
+                  - athena:GetQueryExecution
+                  - athena:GetQueryResults
+                  - athena:StopQueryExecution
+                Resource: "*"
+              - Sid: GlueCatalog
+                Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartitions
+                Resource: "*"
+              - Sid: CurRead
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - !Sub "arn:aws:s3:::${CurBucket}"
+                  - !Sub "arn:aws:s3:::${CurBucket}/*"
+              - Sid: AthenaResults
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "arn:aws:s3:::${CurBucket}/athena-results/*"
+              - Sid: CloudTrail
+                Effect: Allow
+                Action: cloudtrail:LookupEvents
+                Resource: "*"
+              - Sid: Bedrock
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: "*"
+
+  AgentFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-fn"
+      Runtime: python3.12
+      Handler: agent.lambda_handler
+      Role: !GetAtt AgentRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Environment:
+        Variables:
+          COST_PROVIDER: ATHENA_CUR
+          ATHENA_DATABASE: !Ref AthenaDatabase
+          ATHENA_TABLE: !Ref AthenaTable
+          ATHENA_OUTPUT_LOCATION: !Ref AthenaOutputLocation
+          ATHENA_WORKGROUP: primary
+          FINOPS_AWS_REGION: !Ref AWS::Region
+          AWS_BEDROCK_REGION: !Ref AWS::Region
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          SPIKE_THRESHOLD_PCT: !Ref SpikeThresholdPct
+          MIN_BASELINE_USD: !Ref MinBaselineUsd
+          NEW_SERVICE_USD: !Ref NewServiceUsd
+          AGENT_MAX_ITERATIONS: "8"
+          SLACK_WEBHOOK_URL: !Ref SlackWebhookUrl
+
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${AWS::StackName}-schedule"
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Id: agent
+          Arn: !GetAtt AgentFunction.Arn
+
+  SchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AgentFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduleRule.Arn
+
+Outputs:
+  FunctionName:
+    Value: !Ref AgentFunction
+  ScheduleExpression:
+    Value: !Ref ScheduleExpression

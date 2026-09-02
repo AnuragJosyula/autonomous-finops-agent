@@ -34,6 +34,10 @@ ATHENA_REGION = os.environ.get("FINOPS_AWS_REGION") or os.environ.get("AWS_REGIO
 
 BASELINE_DAYS = 7
 MIN_BASELINE_USD = float(os.environ.get("MIN_BASELINE_USD", "1.0"))
+# A service with no meaningful 7-day baseline can't have a percentage spike — a
+# new or dormant cost source instead trips an absolute-dollar floor. This is the
+# only way a brand-new service (baseline $0) is ever flagged.
+NEW_SERVICE_USD = float(os.environ.get("NEW_SERVICE_USD", "5.0"))
 QUERY_TIMEOUT_SECONDS = int(os.environ.get("ATHENA_TIMEOUT_SECONDS", "60"))
 
 # Valid AWS service names: alphanumerics, spaces, and a little punctuation.
@@ -372,11 +376,24 @@ def find_spike_services(threshold_pct: float = 25.0) -> list[dict[str, Any]]:
     for service, series in daily.items():
         current = series.get(target_day, 0.0)
         baseline = sum(series.get(d, 0.0) for d in baseline_days) / divisor
-        if baseline <= MIN_BASELINE_USD:
-            continue
 
-        pct_change = ((current - baseline) / baseline) * 100
-        if pct_change >= threshold_pct:
+        if baseline > MIN_BASELINE_USD:
+            # Established service: flag a percentage jump above its own baseline.
+            pct_change = ((current - baseline) / baseline) * 100
+            if pct_change >= threshold_pct:
+                anomalies.append({
+                    "service": service,
+                    "team": "AWS Account",
+                    "as_of": target_day.isoformat(),
+                    "current_usd": round(current, 2),
+                    "baseline_usd": round(baseline, 2),
+                    "delta_usd": round(current - baseline, 2),
+                    "pct_change": round(pct_change, 1),
+                    "is_new_service": False,
+                })
+        elif current >= NEW_SERVICE_USD:
+            # New or dormant service: no baseline to take a percentage of, so a
+            # meaningful absolute spend is the anomaly.
             anomalies.append({
                 "service": service,
                 "team": "AWS Account",
@@ -384,7 +401,8 @@ def find_spike_services(threshold_pct: float = 25.0) -> list[dict[str, Any]]:
                 "current_usd": round(current, 2),
                 "baseline_usd": round(baseline, 2),
                 "delta_usd": round(current - baseline, 2),
-                "pct_change": round(pct_change, 1),
+                "pct_change": None,
+                "is_new_service": True,
             })
 
     anomalies.sort(key=lambda a: a["delta_usd"], reverse=True)

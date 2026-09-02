@@ -84,24 +84,32 @@ def check_schema():
 
 
 def check_partitions_registered() -> bool:
-    """A crawler that has not run leaves the table empty even though S3 has data."""
+    """
+    Confirm partitions are visible.
+
+    A projected table (partition projection) has no registered partitions to list
+    — SHOW PARTITIONS errors — so a successful data query is the real proof. A
+    crawler-backed table that has never run, by contrast, lists nothing and reads
+    nothing. Either way check_daily_costs below is the authority; this is advisory.
+    """
     from tools.aws_athena_cur import (
         ATHENA_DATABASE, ATHENA_TABLE, CostQueryError, run_athena_query,
     )
 
     try:
         rows = run_athena_query(f'SHOW PARTITIONS "{ATHENA_DATABASE}"."{ATHENA_TABLE}"')
-    except CostQueryError as e:
-        print(f"{WARN}  Could not list partitions ({e}). Continuing.")
+    except CostQueryError:
+        print(f"{PASS}  Table uses partition projection (no registered partitions "
+              "to list) — data query below is the real check.")
         return True
 
     if not rows:
-        print(f"{FAIL}  Table has no registered partitions. Run the Glue crawler "
-              f"'AWSCURCrawler-<report-name>' and re-check.")
-        return False
+        print(f"{WARN}  No partitions listed. If this is a crawler-backed table, "
+              "run the crawler; if it uses projection, ignore this.")
+        return True
 
     values = [next(iter(r.values()), "") for r in rows]
-    print(f"{PASS}  {len(values)} partition(s) registered: {values[:6]}")
+    print(f"{PASS}  {len(values)} partition(s): {values[:6]}")
     return True
 
 

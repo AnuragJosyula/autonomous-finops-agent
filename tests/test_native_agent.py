@@ -263,6 +263,31 @@ class SpikeDetectionTest(unittest.TestCase):
         with patch.object(cur, "get_daily_costs", return_value=daily):
             self.assertEqual(find_spike_services(threshold_pct=25.0), [])
 
+    def test_new_service_with_zero_baseline_is_flagged(self):
+        """A brand-new service (baseline $0) must be caught on an absolute floor —
+        the percentage path divides by zero and would otherwise skip it."""
+        daily = {"AmazonEC2": {self.yesterday: 12.50}}
+        for i in range(1, 8):
+            daily["AmazonEC2"][self.yesterday - timedelta(days=i)] = 0.0
+
+        with patch.object(cur, "NEW_SERVICE_USD", 5.0), \
+                patch.object(cur, "get_daily_costs", return_value=daily):
+            spikes = find_spike_services(threshold_pct=25.0)
+
+        self.assertEqual(len(spikes), 1)
+        self.assertTrue(spikes[0]["is_new_service"])
+        self.assertIsNone(spikes[0]["pct_change"])
+        self.assertEqual(spikes[0]["current_usd"], 12.50)
+
+    def test_new_service_below_absolute_floor_ignored(self):
+        daily = {"AmazonEC2": {self.yesterday: 0.30}}
+        for i in range(1, 8):
+            daily["AmazonEC2"][self.yesterday - timedelta(days=i)] = 0.0
+
+        with patch.object(cur, "NEW_SERVICE_USD", 5.0), \
+                patch.object(cur, "get_daily_costs", return_value=daily):
+            self.assertEqual(find_spike_services(threshold_pct=25.0), [])
+
     def test_no_data_raises_rather_than_reporting_no_anomalies(self):
         with patch.object(cur, "get_daily_costs", return_value={}):
             with self.assertRaises(CostQueryError):
@@ -325,6 +350,20 @@ class SlackDeliveryTest(unittest.TestCase):
             )
         self.assertTrue(result["delivered"])
         self.assertEqual(result["anomaly_count"], 1)
+
+    def test_new_service_anomaly_renders_without_percentage(self):
+        """A new-service anomaly has pct_change=None; the card must not crash on it."""
+        from aws_native_plug_and_play.tools.slack_notify import _build_anomaly_section
+
+        anomaly = {
+            "service": "AmazonEC2", "team": "AWS Account", "as_of": "2026-09-02",
+            "current_usd": 12.50, "baseline_usd": 0.0, "delta_usd": 12.50,
+            "pct_change": None, "is_new_service": True,
+        }
+        blocks = _build_anomaly_section(anomaly, "New EC2 instance launched.", "Terminate it.")
+        rendered = str(blocks)
+        self.assertIn("new cost source", rendered)
+        self.assertNotIn("None%", rendered)
 
 
 class CauseTextCoercionTest(unittest.TestCase):

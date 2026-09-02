@@ -21,6 +21,9 @@ CE_REGION = os.environ.get("FINOPS_AWS_REGION") or os.environ.get("AWS_REGION", 
 
 BASELINE_DAYS = 7
 MIN_BASELINE_USD = float(os.environ.get("MIN_BASELINE_USD", "1.0"))
+# See aws_athena_cur.py — a new/dormant service with no baseline is flagged on an
+# absolute-dollar floor instead of a percentage.
+NEW_SERVICE_USD = float(os.environ.get("NEW_SERVICE_USD", "5.0"))
 
 
 class CostQueryError(RuntimeError):
@@ -113,11 +116,21 @@ def find_spike_services(threshold_pct: float = 25.0) -> list[dict[str, Any]]:
     for service, series in daily.items():
         current = series.get(target_day, 0.0)
         baseline = sum(series.get(d, 0.0) for d in baseline_days) / divisor
-        if baseline <= MIN_BASELINE_USD:
-            continue
 
-        pct_change = ((current - baseline) / baseline) * 100
-        if pct_change >= threshold_pct:
+        if baseline > MIN_BASELINE_USD:
+            pct_change = ((current - baseline) / baseline) * 100
+            if pct_change >= threshold_pct:
+                anomalies.append({
+                    "service": service,
+                    "team": "AWS Account",
+                    "as_of": target_day.isoformat(),
+                    "current_usd": round(current, 2),
+                    "baseline_usd": round(baseline, 2),
+                    "delta_usd": round(current - baseline, 2),
+                    "pct_change": round(pct_change, 1),
+                    "is_new_service": False,
+                })
+        elif current >= NEW_SERVICE_USD:
             anomalies.append({
                 "service": service,
                 "team": "AWS Account",
@@ -125,7 +138,8 @@ def find_spike_services(threshold_pct: float = 25.0) -> list[dict[str, Any]]:
                 "current_usd": round(current, 2),
                 "baseline_usd": round(baseline, 2),
                 "delta_usd": round(current - baseline, 2),
-                "pct_change": round(pct_change, 1),
+                "pct_change": None,
+                "is_new_service": True,
             })
 
     anomalies.sort(key=lambda a: a["delta_usd"], reverse=True)

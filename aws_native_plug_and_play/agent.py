@@ -66,6 +66,9 @@ Constraints:
 - Never fabricate numbers. Only report what the tool results contain.
 - Anomalies are measured on the last COMPLETE day (the `as_of` field), not today.
   Describe them that way — never say "today".
+- An anomaly with is_new_service=true and pct_change=null is a brand-new cost
+  source with no prior baseline (e.g. a service that just started running).
+  Describe it as newly appeared spend, not as a percentage increase.
 - If a tool returns an error, STOP. Say what failed. Do not retry more than once,
   do not work around it, and do not post a Slack alert based on partial data. A
   missing answer is fine; a wrong answer is not.
