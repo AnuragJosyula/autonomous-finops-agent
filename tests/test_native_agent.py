@@ -16,14 +16,15 @@ os.environ.setdefault("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/fak
 os.environ.setdefault("AWS_BEDROCK_REGION", "us-east-1")
 os.environ.setdefault("COST_PROVIDER", "ATHENA_CUR")
 
-from aws_native_plug_and_play.tools import aws_athena_cur as cur  # noqa: E402
-from aws_native_plug_and_play.tools.aws_athena_cur import (  # noqa: E402
+# Agent/ is placed on sys.path by tests/conftest.py, matching the Lambda runtime.
+import aws_athena_cur as cur  # noqa: E402
+from aws_athena_cur import (  # noqa: E402
     CostQueryError,
     CurSchema,
     find_spike_services,
     get_cost_timeseries,
 )
-from aws_native_plug_and_play.tools.slack_notify import (  # noqa: E402
+from slack_notify import (  # noqa: E402
     _as_text,
     SlackDeliveryError,
     post_slack_alert,
@@ -353,7 +354,7 @@ class SlackDeliveryTest(unittest.TestCase):
 
     def test_new_service_anomaly_renders_without_percentage(self):
         """A new-service anomaly has pct_change=None; the card must not crash on it."""
-        from aws_native_plug_and_play.tools.slack_notify import _build_anomaly_section
+        from slack_notify import _build_anomaly_section
 
         anomaly = {
             "service": "AmazonEC2", "team": "AWS Account", "as_of": "2026-09-02",
@@ -402,44 +403,9 @@ class CauseTextCoercionTest(unittest.TestCase):
 class RunMetaTest(unittest.TestCase):
     """Run telemetry is measured by the agent, never taken from the model."""
 
-    @staticmethod
-    def _import_native_agent():
-        """
-        Import aws_native_plug_and_play/agent.py the way Lambda does.
-
-        Both the repo root and aws_native_plug_and_play/ contain a `tools`
-        package, so `tools` resolves to whichever was imported first. Isolate the
-        name for the duration of this import and put it back afterwards.
-        """
-        import sys
-
-        pkg_dir = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "aws_native_plug_and_play")
-        )
-        clashing = ("tools", "agent")
-        saved = {
-            name: module
-            for name, module in sys.modules.items()
-            if name in clashing or name.startswith("tools.")
-        }
-        for name in saved:
-            del sys.modules[name]
-
-        sys.path.insert(0, pkg_dir)
-        try:
-            import agent as agent_module
-            return agent_module
-        finally:
-            sys.path.remove(pkg_dir)
-            for name in [
-                n for n in list(sys.modules)
-                if n in clashing or n.startswith("tools.")
-            ]:
-                del sys.modules[name]
-            sys.modules.update(saved)
-
     def test_agent_overrides_model_supplied_run_meta(self):
-        agent_module = self._import_native_agent()
+        # Agent/ is on sys.path via conftest.py; agent.py imports its siblings flat.
+        import agent as agent_module
 
         captured = {}
         original = agent_module.TOOL_DISPATCH["post_slack_alert"]
