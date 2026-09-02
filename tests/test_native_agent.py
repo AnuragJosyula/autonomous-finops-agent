@@ -24,6 +24,7 @@ from aws_native_plug_and_play.tools.aws_athena_cur import (  # noqa: E402
     get_cost_timeseries,
 )
 from aws_native_plug_and_play.tools.slack_notify import (  # noqa: E402
+    _as_text,
     SlackDeliveryError,
     post_slack_alert,
 )
@@ -262,6 +263,31 @@ class SpikeDetectionTest(unittest.TestCase):
         with patch.object(cur, "get_daily_costs", return_value=daily):
             self.assertEqual(find_spike_services(threshold_pct=25.0), [])
 
+    def test_new_service_with_zero_baseline_is_flagged(self):
+        """A brand-new service (baseline $0) must be caught on an absolute floor —
+        the percentage path divides by zero and would otherwise skip it."""
+        daily = {"AmazonEC2": {self.yesterday: 12.50}}
+        for i in range(1, 8):
+            daily["AmazonEC2"][self.yesterday - timedelta(days=i)] = 0.0
+
+        with patch.object(cur, "NEW_SERVICE_USD", 5.0), \
+                patch.object(cur, "get_daily_costs", return_value=daily):
+            spikes = find_spike_services(threshold_pct=25.0)
+
+        self.assertEqual(len(spikes), 1)
+        self.assertTrue(spikes[0]["is_new_service"])
+        self.assertIsNone(spikes[0]["pct_change"])
+        self.assertEqual(spikes[0]["current_usd"], 12.50)
+
+    def test_new_service_below_absolute_floor_ignored(self):
+        daily = {"AmazonEC2": {self.yesterday: 0.30}}
+        for i in range(1, 8):
+            daily["AmazonEC2"][self.yesterday - timedelta(days=i)] = 0.0
+
+        with patch.object(cur, "NEW_SERVICE_USD", 5.0), \
+                patch.object(cur, "get_daily_costs", return_value=daily):
+            self.assertEqual(find_spike_services(threshold_pct=25.0), [])
+
     def test_no_data_raises_rather_than_reporting_no_anomalies(self):
         with patch.object(cur, "get_daily_costs", return_value={}):
             with self.assertRaises(CostQueryError):
@@ -324,6 +350,121 @@ class SlackDeliveryTest(unittest.TestCase):
             )
         self.assertTrue(result["delivered"])
         self.assertEqual(result["anomaly_count"], 1)
+
+    def test_new_service_anomaly_renders_without_percentage(self):
+        """A new-service anomaly has pct_change=None; the card must not crash on it."""
+        from aws_native_plug_and_play.tools.slack_notify import _build_anomaly_section
+
+        anomaly = {
+            "service": "AmazonEC2", "team": "AWS Account", "as_of": "2026-09-02",
+            "current_usd": 12.50, "baseline_usd": 0.0, "delta_usd": 12.50,
+            "pct_change": None, "is_new_service": True,
+        }
+        blocks = _build_anomaly_section(anomaly, "New EC2 instance launched.", "Terminate it.")
+        rendered = str(blocks)
+        self.assertIn("new cost source", rendered)
+        self.assertNotIn("None%", rendered)
+
+
+class CauseTextCoercionTest(unittest.TestCase):
+    """
+    The model is asked for plain strings but a tool schema cannot guarantee it —
+    observed live returning {"summary": ...} / {"action": ...} objects, which
+    rendered as str(dict) in the Slack card.
+    """
+
+    def test_passes_strings_through(self):
+        self.assertEqual(_as_text("  HPA scaled to 12 replicas.  "),
+                         "HPA scaled to 12 replicas.")
+
+    def test_extracts_summary_from_object(self):
+        self.assertEqual(
+            _as_text({"service": "EC2", "summary": "HPA scaled 3->12.", "n": 1}),
+            "HPA scaled 3->12.",
+        )
+
+    def test_extracts_action_from_object(self):
+        self.assertEqual(
+            _as_text({"action": "Cap maxReplicas to 4.", "saving_usd": 255.1}),
+            "Cap maxReplicas to 4.",
+        )
+
+    def test_falls_back_to_longest_string_not_dict_dump(self):
+        result = _as_text({"foo": "short", "bar": "a much longer explanation here"})
+        self.assertEqual(result, "a much longer explanation here")
+        self.assertNotIn("{", result)
+
+    def test_joins_lists(self):
+        self.assertEqual(_as_text(["First part.", "Second part."]),
+                         "First part. Second part.")
+
+
+class RunMetaTest(unittest.TestCase):
+    """Run telemetry is measured by the agent, never taken from the model."""
+
+    @staticmethod
+    def _import_native_agent():
+        """
+        Import aws_native_plug_and_play/agent.py the way Lambda does.
+
+        Both the repo root and aws_native_plug_and_play/ contain a `tools`
+        package, so `tools` resolves to whichever was imported first. Isolate the
+        name for the duration of this import and put it back afterwards.
+        """
+        import sys
+
+        pkg_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "aws_native_plug_and_play")
+        )
+        clashing = ("tools", "agent")
+        saved = {
+            name: module
+            for name, module in sys.modules.items()
+            if name in clashing or name.startswith("tools.")
+        }
+        for name in saved:
+            del sys.modules[name]
+
+        sys.path.insert(0, pkg_dir)
+        try:
+            import agent as agent_module
+            return agent_module
+        finally:
+            sys.path.remove(pkg_dir)
+            for name in [
+                n for n in list(sys.modules)
+                if n in clashing or n.startswith("tools.")
+            ]:
+                del sys.modules[name]
+            sys.modules.update(saved)
+
+    def test_agent_overrides_model_supplied_run_meta(self):
+        agent_module = self._import_native_agent()
+
+        captured = {}
+        original = agent_module.TOOL_DISPATCH["post_slack_alert"]
+        agent_module.TOOL_DISPATCH["post_slack_alert"] = (
+            lambda a: captured.update(a["run_meta"]) or {"delivered": True}
+        )
+        try:
+            agent = agent_module.NativeAWSFinOpsAgent.__new__(
+                agent_module.NativeAWSFinOpsAgent
+            )
+            agent.run_id = "real-run-id"
+            agent.start_time = 1000.0
+            agent._dispatch_tool(
+                "post_slack_alert",
+                {
+                    "anomalies": [], "causes": [], "suggestions": [],
+                    # What the model guessed:
+                    "run_meta": {"run_id": "hallucinated", "duration_seconds": 0.0},
+                },
+            )
+        finally:
+            agent_module.TOOL_DISPATCH["post_slack_alert"] = original
+
+        self.assertEqual(captured["run_id"], "real-run-id")
+        self.assertGreater(captured["duration_seconds"], 0.0)
 
 
 if __name__ == "__main__":
