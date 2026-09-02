@@ -1,6 +1,8 @@
-# Cloud Cost Anomaly Agent — pinned dependencies
-# boto3 is provided by the Lambda runtime; pin it here for local dev parity.
+# Cloud Cost Anomaly Agent — dependencies
+#
+# The agent itself needs only boto3, which the AWS Lambda runtime already
+# provides. It is pinned here for local-development parity. There are no other
+# runtime dependencies — the Slack client uses the standard library.
 
 boto3==1.38.0
 botocore==1.38.0
-elasticsearch==8.17.1

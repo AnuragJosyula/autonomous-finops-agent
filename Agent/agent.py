@@ -1,5 +1,5 @@
 """
-aws_native_plug_and_play/agent.py — AWS FinOps Cost Anomaly Agent
+Agent/agent.py — AWS FinOps Cost Anomaly Agent
 
 Agentic loop: detect cost spike → pull CloudTrail changes → Bedrock reasons
 about root cause → post Slack alert. Runs on Lambda or locally.
@@ -27,14 +27,14 @@ logger.setLevel(logging.INFO)
 COST_PROVIDER = os.environ.get("COST_PROVIDER", "COST_EXPLORER").upper()
 
 if COST_PROVIDER == "ATHENA_CUR":
-    from tools.aws_athena_cur import find_spike_services, get_cost_timeseries
+    from aws_athena_cur import find_spike_services, get_cost_timeseries
     logger.info("Cost provider: Athena CUR")
 else:
-    from tools.aws_cost_explorer import find_spike_services, get_cost_timeseries
+    from aws_cost_explorer import find_spike_services, get_cost_timeseries
     logger.info("Cost provider: AWS Cost Explorer API")
 
-from tools.aws_cloudtrail import find_deploys_near_spike
-from tools.slack_notify import post_slack_alert
+from aws_cloudtrail import find_deploys_near_spike
+from slack_notify import post_slack_alert
 
 # ---------------------------------------------------------------------------
 # Configuration

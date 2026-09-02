@@ -17,7 +17,7 @@ import os
 import sys
 
 # Import the agent's own tools package.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aws_native_plug_and_play"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "Agent"))
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
@@ -29,7 +29,7 @@ WARN = "\033[93m! WARN\033[0m"
 def check_env() -> bool:
     """ATHENA_DATABASE and ATHENA_TABLE are required; the output location may
     come from the workgroup instead."""
-    from tools.aws_athena_cur import (
+    from aws_athena_cur import (
         ATHENA_DATABASE, ATHENA_TABLE, ATHENA_OUTPUT_LOCATION,
         ATHENA_WORKGROUP, ATHENA_REGION,
     )
@@ -61,7 +61,7 @@ def check_env() -> bool:
 
 def check_schema():
     """Detect the CUR flavour and partition layout from Glue."""
-    from tools.aws_athena_cur import CostQueryError, detect_schema
+    from aws_athena_cur import CostQueryError, detect_schema
 
     try:
         schema = detect_schema(refresh=True)
@@ -92,7 +92,7 @@ def check_partitions_registered() -> bool:
     crawler-backed table that has never run, by contrast, lists nothing and reads
     nothing. Either way check_daily_costs below is the authority; this is advisory.
     """
-    from tools.aws_athena_cur import (
+    from aws_athena_cur import (
         ATHENA_DATABASE, ATHENA_TABLE, CostQueryError, run_athena_query,
     )
 
@@ -115,7 +115,7 @@ def check_partitions_registered() -> bool:
 
 def check_daily_costs() -> bool:
     """Pull the real daily cost matrix — this exercises the generated SQL end to end."""
-    from tools.aws_athena_cur import CostQueryError, get_daily_costs
+    from aws_athena_cur import CostQueryError, get_daily_costs
 
     try:
         daily = get_daily_costs()
@@ -144,7 +144,7 @@ def check_daily_costs() -> bool:
 
 def check_spike_detection() -> bool:
     """Run the real detector. Zero spikes is a pass; an exception is not."""
-    from tools.aws_athena_cur import CostQueryError, find_spike_services
+    from aws_athena_cur import CostQueryError, find_spike_services
 
     try:
         spikes = find_spike_services(threshold_pct=25.0)
@@ -159,8 +159,9 @@ def check_spike_detection() -> bool:
 
     print(f"{PASS}  find_spike_services() found {len(spikes)} spike(s)")
     for s in spikes[:5]:
+        change = "new cost source" if s.get("pct_change") is None else f"{s['pct_change']:+.1f}%"
         print(f"       → {s['service']} on {s['as_of']}: ${s['current_usd']:,.2f} "
-              f"vs ${s['baseline_usd']:,.2f} baseline ({s['pct_change']:+.1f}%)")
+              f"vs ${s['baseline_usd']:,.2f} baseline ({change})")
     return True
 
 
