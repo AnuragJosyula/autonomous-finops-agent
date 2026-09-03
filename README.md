@@ -28,6 +28,8 @@ Estimated saving: ~$220/day.
 
 ## How it works
 
+![Architecture: EventBridge triggers the Lambda agent daily; it reads cost data from the CUR in S3 via Athena and the Glue catalog, checks CloudTrail for what changed, has Bedrock explain the spike, and posts to Slack.](docs/architecture.jpg)
+
 The agent is a small loop. It hands Claude four tools and lets the model use them
 in order until it has an answer:
 
